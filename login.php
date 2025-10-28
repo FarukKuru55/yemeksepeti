@@ -1,60 +1,153 @@
 <?php
-// login.php
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit; }
+/**
+ * login.php
+ * Müşteri girişi için JWT token üreten API
+ */
 
-require_once __DIR__ . "/Api/db.php";           // PDO bağlantısı
-require_once __DIR__ . "/vendor/autoload.php"; // Composer autoload
-$config = require __DIR__ . "/config.php";
-
+// Import sınıfları dosya başında tanımlanmalı (try bloğu içinde olamaz)
 use Firebase\JWT\JWT;
 
-// POST body oku
-$input = json_decode(file_get_contents("php://input"), true);
+header("Content-Type: application/json; charset=UTF-8");
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
-if (!isset($input['email'], $input['sifre'])) {
+// CORS preflight isteğini direkt sonlandır
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
+try {
+    // ============================================================
+    // 1. Gerekli dosyaları dahil et
+    // ============================================================
+    require_once __DIR__ . "/vendor/autoload.php";
+    require_once __DIR__ . "/Api/db.php"; // $pdo bağlantısını sağlar
+
+    $jwtAyarlari = require __DIR__ . "/config.php";
+
+    // ============================================================
+    // 2. JWT ayarlarını doğrula
+    // ============================================================
+    if (
+        !is_array($jwtAyarlari) ||
+        empty($jwtAyarlari['jwt_secret']) ||
+        empty($jwtAyarlari['jwt_issuer']) ||
+        empty($jwtAyarlari['jwt_expire'])
+    ) {
+        throw new Exception("Sunucu konfigürasyon hatası: JWT ayarları eksik.");
+    }
+
+    // ============================================================
+    // 3. POST verilerini al ve doğrula
+    // ============================================================
+    $input = json_decode(file_get_contents("php://input"), true);
+
+    if (!is_array($input) || empty($input['email']) || empty($input['sifre'])) {
+        http_response_code(400);
+        echo json_encode([
+            "status"  => "error",
+            "message" => "Email ve şifre alanları zorunludur."
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $email = strtolower(trim($input['email']));
+    $sifre = trim($input['sifre']);
+
+    // Basit email doğrulaması
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        http_response_code(400);
+        echo json_encode([
+            "status" => "error",
+            "message" => "Geçersiz email formatı."
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // ============================================================
+    // 4. Müşteriyi email'e göre sorgula
+    // ============================================================
+    $stmt = $pdo->prepare("SELECT * FROM musteriler WHERE LOWER(email) = ?");
+    $stmt->execute([$email]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$user || !password_verify($sifre, $user['sifre'])) {
+        http_response_code(401);
+        echo json_encode([
+            "status"  => "error",
+            "message" => "Geçersiz email veya şifre."
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // ============================================================
+    // 5. JWT oluşturma
+    // ============================================================
+    $payload = [
+        "iss"   => $jwtAyarlari['jwt_issuer'],
+        "iat"   => time(),
+        "exp"   => time() + $jwtAyarlari['jwt_expire'],
+        "sub"   => $user['musteri_id'],
+        "email" => $user['email'],
+        "rol"   => $user['rol'] ?? "musteri"
+    ];
+
+    $token = JWT::encode($payload, $jwtAyarlari['jwt_secret'], 'HS256');
+
+    // Şifre bilgisini döndürmeyelim
+    unset($user['sifre']);
+
+    // ============================================================
+    // 6. Başarılı yanıt
+    // ============================================================
+    echo json_encode([
+        "status"   => "success",
+        "token"    => $token,
+        "musteri"  => $user
+    ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+
+
+} catch (PDOException $e) {
+    // Veritabanı hataları
+    http_response_code(500);
+    echo json_encode([
+        "status"  => "error",
+        "message" => "Veritabanı hatası: " . $e->getMessage()
+    ], JSON_UNESCAPED_UNICODE);
+
+} catch (\InvalidArgumentException $e) {
+    // JWT yapılandırma hatası (ör. boş/hatali anahtar)
+    http_response_code(500);
+    echo json_encode([
+        "status"  => "error",
+        "message" => "JWT yapılandırma hatası."
+    ], JSON_UNESCAPED_UNICODE);
+
+} catch (\DomainException $e) {
+    // JWT/crypto hataları
+    http_response_code(500);
+    echo json_encode([
+        "status"  => "error",
+        "message" => "JWT imzalama/doğrulama hatası."
+    ], JSON_UNESCAPED_UNICODE);
+
+} catch (\UnexpectedValueException $e) {
+    // JWT decode/format hataları
     http_response_code(400);
     echo json_encode([
-        "status" => "error",
-        "message" => "Email ve şifre gerekli"
+        "status"  => "error",
+        "message" => "Geçersiz JWT verisi."
     ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
 
-// Kullanıcıyı bul
-$stmt = $pdo->prepare("SELECT * FROM musteriler WHERE email = ?");
-$stmt->execute([$input['email']]);
-$user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-// Şifre kontrolü
-if (!$user || !password_verify($input['sifre'], $user['sifre'])) {
-    http_response_code(401);
+} catch (Throwable $e) {
+    // Diğer tüm beklenmedik hatalar
+    http_response_code(500);
     echo json_encode([
-        "status" => "error",
-        "message" => "Geçersiz email veya şifre"
+        "status"  => "error",
+        "message" => "Beklenmedik Sunucu Hatası: " . $e->getMessage()
     ], JSON_UNESCAPED_UNICODE);
-    exit;
 }
 
-// JWT payload
-$payload = [
-    "iss"   => $config['jwt_issuer'],           // issuer
-    "iat"   => time(),                          // issued at
-    "exp"   => time() + $config['jwt_expire'], // expire time
-    "sub"   => $user['musteri_id'],            // subject (id)
-    "email" => $user['email'],
-    "rol"   => $user['rol']                     // <-- buraya rol eklendi
-];
-$token = JWT::encode($payload, $config['jwt_secret'], 'HS256');
-
-// Şifreyi geri dönme
-unset($user['sifre']);
-
-// Yanıt
-echo json_encode([
-    "status"  => "success",
-    "token"   => $token,
-    "musteri" => $user
-], JSON_UNESCAPED_UNICODE);
+?>

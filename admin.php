@@ -130,3 +130,4 @@ try {
     echo json_encode(["status" => "error", "message" => "Sunucu Hatası", "details" => $e->getMessage()]);
 }
 ?>
+

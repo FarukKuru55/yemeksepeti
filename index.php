@@ -1,5 +1,8 @@
 <?php
 // DENEME İNDEX.PHP
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 require_once __DIR__ . "/Api/db.php";
 
 $stmt = $pdo->query("SELECT restoran_id, ad, kategori_id, adres, telefon, puan, acilis_saati, kapanis_saati 
@@ -7,6 +10,7 @@ $stmt = $pdo->query("SELECT restoran_id, ad, kategori_id, adres, telefon, puan, 
                      ORDER BY restoran_id ASC");
 $restoranlar = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+header("Access-Control-Allow-Origin: *");
 ?>
 <!DOCTYPE html>
 <html lang="tr">

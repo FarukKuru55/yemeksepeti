@@ -1,54 +1,83 @@
 <?php
+// db.php - Local / Production (Düzeltilmiş Ortam Algılamalı)
 
-// === 1. ORTAM KONTROLÜ (Kimlik Kontrolü) ===
-// Postman'den özel başlık (Header) gelip gelmediğini kontrol et.
-// Bu, Postman'de test yaparken kullanacağınız gizli anahtarınız olacak.
-$is_postman_test = false;
-// $_SERVER['HTTP_API_TEST_MODE'] değişkeni, Postman'den gönderdiğiniz 
-// API-TEST-MODE başlıgının değerini tutar.
-if (isset($_SERVER['HTTP_API_TEST_MODE']) && $_SERVER['HTTP_API_TEST_MODE'] === 'BEN-BACKENDCIYIM-123') {
-    $is_postman_test = true;
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+$local = [
+    'host'     => '127.0.0.1',  // Localhost MySQL
+    'port'     => 3308,         // XAMPP portun
+    'dbname'   => 'yemeksepeti',
+    'username' => 'root',
+    'password' => '',
+    'charset'  => 'utf8mb4',
+];
+
+$prod = [
+    'host'     => 'sql211.infinityfree.com',
+    'port'     => 3306,
+    'dbname'   => 'if0_40087914_yemeksepeti',
+    'username' => 'if0_40087914',
+    'password' => 'SuMUKrWUpO4v',
+    'charset'  => 'utf8mb4',
+];
+
+
+$env = 'prod'; // Varsayılan olarak CANLI (prod) ayarla
+
+if (isset($_SERVER['HTTP_HOST'])) {
+    $hostHeader = strtolower($_SERVER['HTTP_HOST']);
+
+    // 1. Kural: Doğrudan localhost erişimi
+    if (strpos($hostHeader, 'localhost') !== false || strpos($hostHeader, '127.0.0.1') !== false) {
+        $env = 'local';
+    } 
+    // 2. Kural: Cloudflare Tüneli (test için)
+    else if (strpos($hostHeader, 'trycloudflare.com') !== false) {
+        $env = 'local';
+    }
+    // Diğer tüm durumlar (yemek.wuaze.com dahil) 'prod' olarak kalır.
+} 
+// Eğer komut satırından çalıştırılırsa (ileri düzey kullanım)
+elseif (php_sapi_name() === 'cli') {
+    $env = 'local';
 }
+// Ortam değişkeni (getenv) kontrollerini şimdilik basitleştirdik.
 
-if ($is_postman_test) {
-    // === 2. POSTMAN TEST AYARLARI (YEREL XAMPP/WAMP DB) ===
-    $host = "localhost"; 
-    $dbname = "yemeksepeti"; 
-    $username = "root";   
-    $password = "";      
-    
-} else {
-    // === 3. CANLI SUNUCU AYARLARI (FRONTENDCİ ERİŞİMİ İÇİN) ===
-    $host = "sql211.infinityfree.com"; 
-    $dbname = "if0_40087914_yemeksepeti";
-    $username = "if0_40087914";
-    $password = "SuMUKrWUpO4v"; 
-}
+// === Seçilen config ===
+$config = ($env === 'local') ? $local : $prod;
 
+// === DSN oluştur ===
+$dsn = sprintf(
+    "mysql:host=%s;port=%d;dbname=%s;charset=%s",
+    $config['host'],
+    $config['port'],
+    $config['dbname'],
+    $config['charset']
+);
 
-// === 4. PDO BAĞLANTISI (Her iki ortam için de aynı) ===
-$dsn = "mysql:host={$host};dbname={$dbname};charset=utf8mb4";
-$pdo = null;
-
-try { 
-    $pdo = new PDO($dsn, $username, $password, [
-        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION, 
+// === PDO bağlantısı ===
+try {
+    $pdo = new PDO($dsn, $config['username'], $config['password'], [
+        PDO::ATTR_ERRMODE           => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES   => false, 
+        PDO::ATTR_EMULATE_PREPARES  => false,
     ]);
-    
 } catch (PDOException $e) {
-    // Bağlantı hatası durumunda HTTP 500 ve hata detayı gönderilir
-    http_response_code(500); 
-    header('Content-Type: application/json');
-
-    // Hata durumunda ana uygulamayı durdur ve bir API hatası döndür
-    echo json_encode([
-        "status" => "error",
-        "message" => "Sunucu veritabanı bağlantısı kurulamadı. Lütfen sunucu ayarlarınızı kontrol edin.",
-        "details" => $e->getMessage() 
-    ], JSON_UNESCAPED_UNICODE);
+    error_log("DB connection error ({$env}): " . $e->getMessage());
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+    }
+    $response = [
+        "status"  => "error",
+        "message" => "Veritabanı bağlantısı başarısız ({$env})",
+    ];
+    // Sadece yerel ortamda detaylı hata göster
+    if ($env === 'local') {
+        $response['details'] = $e->getMessage();
+    }
+    echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
 }
-
 ?>
