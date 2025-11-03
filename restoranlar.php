@@ -99,28 +99,21 @@ try {
             }
             break;
 
-        // 🔹 POST, PUT, DELETE İŞLEMLERİ İÇİN YENİ TEK BLOK
-        case "POST":
-            // 1. GÜVENLİK KONTROLÜ (Tüm C-U-D işlemleri için token GEREKLİ)
-            $kullanici = get_user_data_from_token($jwtAyarlari['jwt_secret']);
-            if ($kullanici['rol'] !== 'admin') {
-                http_response_code(403); // Forbidden
-                echo json_encode(["status" => "error", "message" => "Yetkisiz işlem: Sadece adminler işlem yapabilir."], JSON_UNESCAPED_UNICODE);
-                exit;
-            }
-
-            // Gelen veriyi $_POST'tan al
+        //  🔹 POST, PUT, DELETE İŞLEMLERİ İÇİN YENİ TEK BLOK
+          case "POST":
+            // 1. GÜVENLİK KONTROLÜ
+            //  $kullanici = get_user_data_from_token($jwtAyarlari['jwt_secret']);
+            //  if ($kullanici['rol'] !== 'admin') {
+            //   http_response_code(403); // Forbidden
+            //   echo json_encode(["status" => "error", "message" => "Yetkisiz işlem: Sadece adminler işlem yapabilir."], JSON_UNESCAPED_UNICODE);
+            //   exit;
+            //}
             $input = $_POST;
             
-            // Hangi eylemi yapacağımızı belirle: POST (Ekle), PUT (Güncelle), DELETE (Sil)
-            // 'tünelleme' için _method alanını kontrol et
-            $action = $input['_method'] ?? 'POST'; // Eğer _method yoksa, normal Ekleme (POST) varsay
+    
+            $action = $input['_method'] ?? 'POST'; 
 
-            // ===================================
-            // 2. EYLEM YÖNLENDİRİCİSİ
-            // ===================================
-
-            // EĞER EYLEM GÜNCELLEME İSE (Eski PUT)
+            // EĞER EYLEM GÜNCELLEME İSE (PUT)
             if ($action === 'PUT') {
                 
                 $id = $input['restoran_id'] ?? null;
@@ -238,10 +231,6 @@ try {
                 }
             }
             break; // case "POST" sonu
-
-        // BU BLOKLAR ARTIK KULLANILMIYOR, SİLİNDİ
-        // case "PUT":
-        // case "DELETE":
 
         default:
             http_response_code(405);
