@@ -102,12 +102,12 @@ try {
         //  🔹 POST, PUT, DELETE İŞLEMLERİ İÇİN YENİ TEK BLOK
           case "POST":
             // 1. GÜVENLİK KONTROLÜ
-            //  $kullanici = get_user_data_from_token($jwtAyarlari['jwt_secret']);
-            //  if ($kullanici['rol'] !== 'admin') {
-            //   http_response_code(403); // Forbidden
-            //   echo json_encode(["status" => "error", "message" => "Yetkisiz işlem: Sadece adminler işlem yapabilir."], JSON_UNESCAPED_UNICODE);
-            //   exit;
-            //}
+              $kullanici = get_user_data_from_token($jwtAyarlari['jwt_secret']);
+              if ($kullanici['rol'] !== 'admin') {
+               http_response_code(403); // Forbidden
+               echo json_encode(["status" => "error", "message" => "Yetkisiz işlem: Sadece adminler işlem yapabilir."], JSON_UNESCAPED_UNICODE);
+              exit;
+            }
             $input = $_POST;
             
     
