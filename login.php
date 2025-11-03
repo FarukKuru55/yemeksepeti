@@ -1,12 +1,9 @@
 <?php
-/**
- * login.php
- * Müşteri girişi için JWT token üreten API
- */
+ob_start();
 
-// Import sınıfları dosya başında tanımlanmalı (try bloğu içinde olamaz)
 use Firebase\JWT\JWT;
 
+// --- CORS Başlıkları ---
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
@@ -19,17 +16,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 try {
-    // ============================================================
-    // 1. Gerekli dosyaları dahil et
-    // ============================================================
     require_once __DIR__ . "/vendor/autoload.php";
     require_once __DIR__ . "/Api/db.php"; // $pdo bağlantısını sağlar
-
     $jwtAyarlari = require __DIR__ . "/config.php";
+    
 
-    // ============================================================
-    // 2. JWT ayarlarını doğrula
-    // ============================================================
     if (
         !is_array($jwtAyarlari) ||
         empty($jwtAyarlari['jwt_secret']) ||
@@ -39,9 +30,6 @@ try {
         throw new Exception("Sunucu konfigürasyon hatası: JWT ayarları eksik.");
     }
 
-    // ============================================================
-    // 3. POST verilerini al ve doğrula
-    // ============================================================
     $input = json_decode(file_get_contents("php://input"), true);
 
     if (!is_array($input) || empty($input['email']) || empty($input['sifre'])) {
@@ -56,7 +44,6 @@ try {
     $email = strtolower(trim($input['email']));
     $sifre = trim($input['sifre']);
 
-    // Basit email doğrulaması
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         http_response_code(400);
         echo json_encode([
@@ -66,9 +53,6 @@ try {
         exit;
     }
 
-    // ============================================================
-    // 4. Müşteriyi email'e göre sorgula
-    // ============================================================
     $stmt = $pdo->prepare("SELECT * FROM musteriler WHERE LOWER(email) = ?");
     $stmt->execute([$email]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -82,26 +66,23 @@ try {
         exit;
     }
 
-    // ============================================================
-    // 5. JWT oluşturma
-    // ============================================================
     $payload = [
         "iss"   => $jwtAyarlari['jwt_issuer'],
         "iat"   => time(),
         "exp"   => time() + $jwtAyarlari['jwt_expire'],
         "sub"   => $user['musteri_id'],
         "email" => $user['email'],
-        "rol"   => $user['rol'] ?? "musteri"
+        "rol"   => $user['rol'] ?? "musteri" // 'rol' yoksa 'musteri' ata
     ];
 
     $token = JWT::encode($payload, $jwtAyarlari['jwt_secret'], 'HS256');
 
-    // Şifre bilgisini döndürmeyelim
-    unset($user['sifre']);
 
-    // ============================================================
-    // 6. Başarılı yanıt
-    // ============================================================
+    unset($user['sifre']);
+    
+    ob_end_clean();
+
+
     echo json_encode([
         "status"   => "success",
         "token"    => $token,
@@ -110,44 +91,28 @@ try {
 
 
 } catch (PDOException $e) {
-    // Veritabanı hataları
+    ob_end_clean(); 
     http_response_code(500);
-    echo json_encode([
-        "status"  => "error",
-        "message" => "Veritabanı hatası: " . $e->getMessage()
-    ], JSON_UNESCAPED_UNICODE);
+    echo json_encode(["status" => "error", "message" => "Veritabanı hatası: " . $e->getMessage()], JSON_UNESCAPED_UNICODE);
 
 } catch (\InvalidArgumentException $e) {
-    // JWT yapılandırma hatası (ör. boş/hatali anahtar)
+    ob_end_clean(); 
     http_response_code(500);
-    echo json_encode([
-        "status"  => "error",
-        "message" => "JWT yapılandırma hatası."
-    ], JSON_UNESCAPED_UNICODE);
+    echo json_encode(["status" => "error", "message" => "JWT yapılandırma hatası."], JSON_UNESCAPED_UNICODE);
 
 } catch (\DomainException $e) {
-    // JWT/crypto hataları
+    ob_end_clean(); 
     http_response_code(500);
-    echo json_encode([
-        "status"  => "error",
-        "message" => "JWT imzalama/doğrulama hatası."
-    ], JSON_UNESCAPED_UNICODE);
+    echo json_encode(["status" => "error", "message" => "JWT imzalama/doğrulama hatası."], JSON_UNESCAPED_UNICODE);
 
 } catch (\UnexpectedValueException $e) {
-    // JWT decode/format hataları
+    ob_end_clean();
     http_response_code(400);
-    echo json_encode([
-        "status"  => "error",
-        "message" => "Geçersiz JWT verisi."
-    ], JSON_UNESCAPED_UNICODE);
+    echo json_encode(["status" => "error", "message" => "Geçersiz JWT verisi."], JSON_UNESCAPED_UNICODE);
 
 } catch (Throwable $e) {
-    // Diğer tüm beklenmedik hatalar
+    ob_end_clean();
     http_response_code(500);
-    echo json_encode([
-        "status"  => "error",
-        "message" => "Beklenmedik Sunucu Hatası: " . $e->getMessage()
-    ], JSON_UNESCAPED_UNICODE);
+    echo json_encode(["status" => "error", "message" => "Beklenmedik Sunucu Hatası: " . $e->getMessage()], JSON_UNESCAPED_UNICODE);
 }
-
 ?>
