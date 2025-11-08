@@ -1,9 +1,8 @@
 <?php
-// kartlar_secure.php
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Origin: *"); 
-header("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
+// kartlar_secure.php - GÜNCELLENMİŞ SÜRÜM (Metod Tünelleme Eklendi)
+
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
 
 require_once __DIR__ . "/Api/db.php";
 require_once __DIR__ . "/vendor/autoload.php";
@@ -12,7 +11,19 @@ $config = require_once __DIR__ . "/config.php";
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
-// Helper: Bearer token al
+// === CORS BAŞLIKLARI (DEĞİŞTİ) ===
+header("Content-Type: application/json; charset=UTF-8");
+header("Access-Control-Allow-Origin: *");
+// API'miz artık PUT/DELETE'i doğrudan kabul etmiyor
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
+// --- TOKEN FONKSİYONU (Aynen kaldı) ---
 function getBearerToken() {
     $header = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null;
     if (!$header && function_exists('getallheaders')) {
@@ -25,20 +36,13 @@ function getBearerToken() {
     return null;
 }
 
-// OPTIONS ön uç preflight
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit;
-}
-
-// JWT doğrulama
+// --- TOKEN DOĞRULAMA (Aynen kaldı) ---
 $token = getBearerToken();
 if (!$token) {
     http_response_code(401);
     echo json_encode(["status"=>"error","message"=>"Token gerekli"]);
     exit;
 }
-
 try {
     $decoded = JWT::decode($token, new Key($config['jwt_secret'], 'HS256'));
     $rol = $decoded->rol ?? null;
@@ -49,17 +53,23 @@ try {
     echo json_encode(["status"=>"error","message"=>"Geçersiz token","details"=>$e->getMessage()]);
     exit;
 }
+// --- TOKEN SONU ---
 
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {
+    // ----------------------------------------------------
+    // 🔹 METOD: GET (Kart(lar)ı Görüntüle)
+    // ----------------------------------------------------
     if ($method === "GET") {
-        // ?id= kart_id veya ?musteri_id= gibi parametreler
+        
+        // (Orijinal GET kodun - Mükemmel çalışıyor, değişiklik yok)
+        
         $kart_id = isset($_GET['id']) ? intval($_GET['id']) : null;
         $q_musteri = isset($_GET['musteri_id']) ? intval($_GET['musteri_id']) : null;
 
         if ($kart_id) {
-            // Tek kart: sahibi ise veya admin/super_admin ise görebilir
+            // ... (Tek kart getirme mantığı) ...
             $stmt = $pdo->prepare("SELECT kart_id, musteri_id, provider_token, last4, card_brand, exp_month, exp_year, created_at FROM kartlar_secure WHERE kart_id=?");
             $stmt->execute([$kart_id]);
             $card = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -77,8 +87,8 @@ try {
             exit;
         }
 
-        // Eğer musterı_id verilmişse ve token sahibi değilse sadece admin görebilir
         if ($q_musteri !== null) {
+            // ... (Başka müşterinin kartlarını (admin) getirme mantığı) ...
             if ($q_musteri != $token_musteri_id && !in_array($rol, ['admin','super_admin'])) {
                 http_response_code(403);
                 echo json_encode(["status"=>"error","message"=>"Yetkiniz yok"]);
@@ -91,92 +101,122 @@ try {
             exit;
         }
 
-        // Default: normal kullanıcı kendi kartlarını görür; admin görebilir tüm kartları
         if (in_array($rol, ['admin','super_admin']) && isset($_GET['all']) && $_GET['all'] == '1') {
+            // ... (Admin tüm kartları getirme mantığı) ...
             $stmt = $pdo->query("SELECT kart_id, musteri_id, last4, card_brand, exp_month, exp_year, created_at FROM kartlar_secure ORDER BY kart_id ASC");
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             echo json_encode(["status"=>"success","data"=>$rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
-        // normal kullanıcı: sadece kendi kartları
+        // ... (Default: Müşteri kendi kartlarını getirir) ...
         $stmt = $pdo->prepare("SELECT kart_id, musteri_id, last4, card_brand, exp_month, exp_year, created_at FROM kartlar_secure WHERE musteri_id=? ORDER BY kart_id ASC");
         $stmt->execute([$token_musteri_id]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         echo json_encode(["status"=>"success","data"=>$rows], JSON_UNESCAPED_UNICODE);
         exit;
 
+    // ----------------------------------------------------
+    // 🔹 METOD: POST (Kart Ekle, Sil) (YAPI DEĞİŞTİ)
+    // ----------------------------------------------------
     } elseif ($method === "POST") {
-        // Yeni kart ekle (frontend'den provider_token gelmeli)
+
+        // Tüm eylemler için JSON verisini oku
         $input = json_decode(file_get_contents("php://input"), true);
-        if (!is_array($input)) { http_response_code(400); echo json_encode(["status"=>"error","message"=>"Geçersiz JSON"]); exit; }
-
-        // Normal kullanıcı kendi hesabına kart ekler; admin token'ı ile musteri_id verilebilir.
-        $target_musteri_id = $token_musteri_id;
-        if (isset($input['musteri_id']) && in_array($rol, ['admin','super_admin'])) {
-            $target_musteri_id = intval($input['musteri_id']);
+        if ($input === null) {
+             http_response_code(400);
+             echo json_encode(["status"=>"error","message"=>"Geçersiz JSON verisi"]);
+             exit;
         }
+        
+        // Tünelleme: Hangi eylemi yapacağız?
+        $action = $input['_method'] ?? 'POST';
 
-        // Gerekli alanlar
-        if (!isset($input['provider_token'], $input['last4'])) {
-            http_response_code(400);
-            echo json_encode(["status"=>"error","message"=>"provider_token ve last4 gerekli"]);
+        // -------------------------------
+        // 🔹 EYLEM: POST (Yeni Kart Ekle)
+        // -------------------------------
+        if ($action === 'POST') {
+            
+            // (Orijinal POST kodun - Zaten JSON bekliyordu)
+            
+            $target_musteri_id = $token_musteri_id;
+            if (isset($input['musteri_id']) && in_array($rol, ['admin','super_admin'])) {
+                $target_musteri_id = intval($input['musteri_id']);
+            }
+
+            if (!isset($input['provider_token'], $input['last4'])) {
+                http_response_code(400);
+                echo json_encode(["status"=>"error","message"=>"provider_token ve last4 gerekli"]);
+                exit;
+            }
+
+            $provider_token = $input['provider_token'];
+            $last4 = preg_replace('/\D/', '', substr($input['last4'], -4));
+            $card_brand = $input['card_brand'] ?? null;
+            $exp_month = isset($input['exp_month']) ? intval($input['exp_month']) : null;
+            $exp_year = isset($input['exp_year']) ? intval($input['exp_year']) : null;
+
+            $stmt = $pdo->prepare("INSERT INTO kartlar_secure (musteri_id, provider_token, last4, card_brand, exp_month, exp_year) VALUES (?, ?, ?, ?, ?, ?)");
+            $ok = $stmt->execute([$target_musteri_id, $provider_token, $last4, $card_brand, $exp_month, $exp_year]);
+
+            if ($ok) {
+                http_response_code(201);
+                echo json_encode(["status"=>"success","message"=>"Kart eklendi","id"=>$pdo->lastInsertId()]);
+            } else {
+                http_response_code(500);
+                echo json_encode(["status"=>"error","message"=>"Kart eklenemedi"]);
+            }
             exit;
-        }
 
-        $provider_token = $input['provider_token'];
-        $last4 = preg_replace('/\D/', '', substr($input['last4'], -4));
-        $card_brand = $input['card_brand'] ?? null;
-        $exp_month = isset($input['exp_month']) ? intval($input['exp_month']) : null;
-        $exp_year = isset($input['exp_year']) ? intval($input['exp_year']) : null;
+        // -------------------------------
+        // 🔹 EYLEM: DELETE (Kart Sil) (ESKİ DELETE KODU BURAYA TAŞINDI)
+        // -------------------------------
+        } elseif ($action === 'DELETE') {
 
-        $stmt = $pdo->prepare("INSERT INTO kartlar_secure (musteri_id, provider_token, last4, card_brand, exp_month, exp_year) VALUES (?, ?, ?, ?, ?, ?)");
-        $ok = $stmt->execute([$target_musteri_id, $provider_token, $last4, $card_brand, $exp_month, $exp_year]);
+            // (Orijinal DELETE kodun - DEĞİŞTİ: Artık JSON'dan okuyor)
+            
+            // DEĞİŞTİ: 'parse_str' kaldırıldı, $input zaten JSON'dan geliyor.
+            $kart_id = $input['kart_id'] ?? null;
+            if (!$kart_id) { 
+                http_response_code(400); 
+                echo json_encode(["status"=>"error","message"=>"JSON body içinde kart_id gerekli"]); 
+                exit; 
+            }
 
-        if ($ok) {
-            echo json_encode(["status"=>"success","message"=>"Kart eklendi","id"=>$pdo->lastInsertId()]);
-        } else {
-            http_response_code(500);
-            echo json_encode(["status"=>"error","message"=>"Kart eklenemedi"]);
-        }
-        exit;
+            $stmt = $pdo->prepare("SELECT musteri_id, provider_token FROM kartlar_secure WHERE kart_id=?");
+            $stmt->execute([$kart_id]);
+            $card = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$card) { http_response_code(404); echo json_encode(["status"=>"error","message"=>"Kart bulunamadı"]); exit; }
 
-    } elseif ($method === "DELETE") {
-        // Kart sil (sadece sahibi veya admin)
-        parse_str(file_get_contents("php://input"), $input);
-        $kart_id = isset($input['kart_id']) ? intval($input['kart_id']) : null;
-        if (!$kart_id) { http_response_code(400); echo json_encode(["status"=>"error","message"=>"kart_id gerekli"]); exit; }
+            // Yetki kontrolü (Aynen kaldı, mükemmeldi)
+            if ($card['musteri_id'] != $token_musteri_id && !in_array($rol, ['admin','super_admin'])) {
+                http_response_code(403);
+                echo json_encode(["status"=>"error","message"=>"Yetkiniz yok"]);
+                exit;
+            }
 
-        $stmt = $pdo->prepare("SELECT musteri_id, provider_token FROM kartlar_secure WHERE kart_id=?");
-        $stmt->execute([$kart_id]);
-        $card = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$card) { http_response_code(404); echo json_encode(["status"=>"error","message"=>"Kart bulunamadı"]); exit; }
+            $stmt = $pdo->prepare("DELETE FROM kartlar_secure WHERE kart_id=?");
+            $ok = $stmt->execute([$kart_id]);
 
-        // yetki kontrolü
-        if ($card['musteri_id'] != $token_musteri_id && !in_array($rol, ['admin','super_admin'])) {
-            http_response_code(403);
-            echo json_encode(["status"=>"error","message"=>"Yetkiniz yok"]);
+            if ($ok) {
+                echo json_encode(["status"=>"success","message"=>"Kart silindi"]);
+            } else {
+                http_response_code(500);
+                echo json_encode(["status"=>"error","message"=>"Silme başarısız"]);
+            }
             exit;
-        }
-
-        // (Opsiyonel) provider üzerinde token silme isteği atılabilir -- burada sadece DB'den siliyoruz.
-        $stmt = $pdo->prepare("DELETE FROM kartlar_secure WHERE kart_id=?");
-        $ok = $stmt->execute([$kart_id]);
-
-        if ($ok) {
-            echo json_encode(["status"=>"success","message"=>"Kart silindi"]);
+        
         } else {
-            http_response_code(500);
-            echo json_encode(["status"=>"error","message"=>"Silme başarısız"]);
+             http_response_code(400);
+             echo json_encode(["status" => "error", "message" => "Geçersiz '_method' eylemi."]);
         }
-        exit;
+
+    } else {
+        http_response_code(405);
+        echo json_encode(["status"=>"error","message"=>"Sadece GET ve POST metotları desteklenmektedir."]);
     }
-
-    // Diğer methodlara izin verme
-    http_response_code(405);
-    echo json_encode(["status"=>"error","message"=>"Geçersiz method"]);
-
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode(["status"=>"error","message"=>$e->getMessage()]);
 }
+?>

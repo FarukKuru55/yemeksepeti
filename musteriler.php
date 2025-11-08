@@ -1,14 +1,21 @@
 <?php
+// musteriler.php - GÜNCELLENMİŞ SÜRÜM (Metod Tünelleme Eklendi)
+
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
 require_once __DIR__ . "/Api/db.php";
 require_once __DIR__ . "/vendor/autoload.php";
-$config = require_once __DIR__ . "/config.php";
+$config = require __DIR__ . "/config.php";
 
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
+// === CORS BAŞLIKLARI (DEĞİŞTİ) ===
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
+// API'miz artık PUT/DELETE'i doğrudan kabul etmiyor
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS"); 
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -16,8 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-$SUPER_ADMIN_ID = 345;
-
+// --- TOKEN FONKSİYONU (Aynen kaldı) ---
 function getBearerToken() {
     $header = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null;
     if (!$header && function_exists('getallheaders')) {
@@ -40,118 +46,181 @@ if (!$token) {
 try {
     $decoded = JWT::decode($token, new Key($config['jwt_secret'], 'HS256'));
     $rol = $decoded->rol ?? null;
-    $musteri_id = $decoded->sub ?? null;
-    if (!$rol || !$musteri_id) throw new Exception("Token geçersiz");
+    $musteri_id_token = $decoded->sub ?? null; // Token'daki musteri ID'si
+    if (!$rol || !$musteri_id_token) throw new Exception("Token geçersiz");
 } catch (Exception $e) {
     http_response_code(403);
     echo json_encode(["status"=>"error","message"=>"Geçersiz token","details"=>$e->getMessage()]);
     exit;
 }
+// --- TOKEN SONU ---
 
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {
-    switch ($method) {
-        case "GET":
-            $id = $_GET['musteri_id'] ?? $_GET['id'] ?? null;
+    // 🔹 METOD: GET (Müşteri(ler)i Görüntüle)
+    if ($method === "GET") {
+        
+        // (Orijinal GET kodun - Mükemmel çalışıyor)
+        $id = $_GET['musteri_id'] ?? $_GET['id'] ?? null;
             
-            // 👇 Restoran rolü kendi müşterilerini listeleyebilsin
-            if ($rol === "musteri") {
-                $id = $musteri_id;
-            } elseif ($rol === "restoran") {
-                // Eğer restoran ise, örneğin kendi müşterilerini listeleme mantığı burada kurgulanabilir.
-                // Şimdilik tüm müşterilere erişim verilmez.
-                http_response_code(403);
-                echo json_encode(["status"=>"error","message"=>"Restoranlar müşteri bilgilerine erişemez"]);
-                exit;
-            } elseif ($rol !== "admin" && $rol !== "super_admin") {
-                http_response_code(403);
-                echo json_encode(["status"=>"error","message"=>"Yetkiniz yok"]);
-                exit;
-            }
-
+        if ($rol === "musteri") {
+            // Müşteri sadece kendi profilini görebilir
+            $id = $musteri_id_token;
+        } elseif ($rol === "restoran") {
+            // Restoranlar müşteri bilgilerine erişemez
+            http_response_code(403);
+            echo json_encode(["status"=>"error","message"=>"Restoranlar müşteri bilgilerine erişemez"]);
+            exit;
+        } elseif ($rol !== "admin" && $rol !== "super_admin") {
+            // Diğer roller (eğer varsa) erişemez
+            http_response_code(403);
+            echo json_encode(["status"=>"error","message"=>"Yetkiniz yok"]);
+            exit;
+        }
+        
+        // Buraya sadece "musteri" (kendi ID'si ile) veya "admin" (istediği ID ile) gelebilir
+        // Admin tüm listeyi de görebilir
+        if ($rol === 'admin' && $id === null) {
+            $stmt = $pdo->query("SELECT musteri_id, ad, soyad, email, telefon, adres, kayit_tarihi, rol FROM musteriler");
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } else {
+             // Müşteri kendi ID'sini veya Admin'in istediği ID'yi alır
+            if ($id === null) $id = $musteri_id_token; // Admin'in id yollamadığı durumu düzelt
+            
             $stmt = $pdo->prepare("SELECT musteri_id, ad, soyad, email, telefon, adres, kayit_tarihi, rol FROM musteriler WHERE musteri_id=?");
             $stmt->execute([$id]);
             $data = $stmt->fetch(PDO::FETCH_ASSOC);
+        }
 
-            if (!$data) {
-                http_response_code(404);
-                echo json_encode(["status"=>"error","message"=>"Müşteri bulunamadı"]);
-            } else {
-                echo json_encode(["status"=>"success","data"=>$data], JSON_UNESCAPED_UNICODE);
-            }
-            break;
+        if (!$data) {
+            http_response_code(404);
+            echo json_encode(["status"=>"error","message"=>"Müşteri bulunamadı"]);
+        } else {
+            echo json_encode(["status"=>"success","data"=>$data], JSON_UNESCAPED_UNICODE);
+        }
 
-        case "POST":
+     // 🔹 METOD: POST (Müşteri Ekle, Güncelle, Sil) (YAPI DEĞİŞTİ)
+      } elseif ($method === "POST") {
+
+        // Tüm eylemler için JSON verisini oku
+        $input = json_decode(file_get_contents("php://input"), true);
+        if ($input === null) {
+             http_response_code(400);
+             echo json_encode(["status"=>"error","message"=>"Geçersiz JSON verisi"]);
+             exit;
+        }
+        
+        // Tünelleme: Hangi eylemi yapacağız?
+        $action = $input['_method'] ?? 'POST';
+
+        // EYLEM: POST (Yeni Müşteri Ekle) - Sadece Admin  
+        if ($action === 'POST') {
+            
+            // (Orijinal POST kodun)
             if ($rol !== "admin" && $rol !== "super_admin") {
                 http_response_code(403);
                 echo json_encode(["status"=>"error","message"=>"Yetkiniz yok"]);
                 exit;
             }
 
-            $input = json_decode(file_get_contents("php://input"), true);
-            if (!isset($input['ad'], $input['soyad'], $input['email'], $input['sifre'])) {
+            if (!isset($input['ad'], $input['email'], $input['sifre'])) {
                 http_response_code(400);
-                echo json_encode(["status"=>"error","message"=>"Eksik alan"]);
+                echo json_encode(["status"=>"error","message"=>"Eksik alan (ad, email, sifre)"]);
                 exit;
             }
 
             $sifre = password_hash($input['sifre'], PASSWORD_DEFAULT);
             $stmt = $pdo->prepare("INSERT INTO musteriler (ad, soyad, email, sifre, rol) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$input['ad'], $input['soyad'], $input['email'], $sifre, $input['rol'] ?? 'musteri']);
+            $stmt->execute([
+                $input['ad'], 
+                $input['soyad'] ?? null, 
+                $input['email'], 
+                $sifre, 
+                $input['rol'] ?? 'musteri'
+            ]);
+            http_response_code(201);
             echo json_encode(["status"=>"success","message"=>"Müşteri eklendi","musteri_id"=>$pdo->lastInsertId()]);
-            break;
 
-        case "PUT":
-            $input = json_decode(file_get_contents("php://input"), true);
+        // -------------------------------
+        // 🔹 EYLEM: PUT (Müşteri Güncelle) (ESKİ PUT KODU BURAYA TAŞINDI)
+        // -------------------------------
+        } elseif ($action === 'PUT') {
+            
+            // (Orijinal PUT kodun)
             $id = $input['musteri_id'] ?? null;
 
             if ($rol === "musteri") {
-                $id = $musteri_id;
+                // Müşteri sadece kendi hesabını güncelleyebilir
+                $id = $musteri_id_token;
             } elseif ($rol === "restoran") {
                 http_response_code(403);
                 echo json_encode(["status"=>"error","message"=>"Restoranlar müşteri bilgilerini güncelleyemez"]);
                 exit;
             } elseif ($rol !== "admin" && $rol !== "super_admin") {
-                http_response_code(403);
-                echo json_encode(["status"=>"error","message"=>"Yetkiniz yok"]);
-                exit;
+                 // Admin değilse ve müşteri de değilse (veya admin olup ID yollamadıysa)
+                if ($id === null) {
+                    http_response_code(403);
+                    echo json_encode(["status"=>"error","message"=>"Yetkiniz yok veya musteri_id gerekli"]);
+                    exit;
+                }
             }
-
-            $stmt = $pdo->prepare("UPDATE musteriler SET ad=?, soyad=?, email=?, rol=? WHERE musteri_id=?");
-            $stmt->execute([
+            
+            // Adminin rol güncellemesine izin ver, müşteri kendi rolünü güncelleyemesin
+            $rolGuncelleSQL = "";
+            $params = [
                 $input['ad'] ?? null,
                 $input['soyad'] ?? null,
                 $input['email'] ?? null,
-                $input['rol'] ?? 'musteri',
-                $id
-            ]);
+                $input['telefon'] ?? null, // telefon ve adres eklendi
+                $input['adres'] ?? null   // telefon ve adres eklendi
+            ];
+            
+            if (($rol === "admin" || $rol === "super_admin") && isset($input['rol'])) {
+                $rolGuncelleSQL = ", rol = ?";
+                $params[] = $input['rol'];
+            }
+            
+            $params[] = $id; // WHERE için ID'yi sona ekle
+            
+            // Orijinal kodda eksik olan telefon ve adres güncellemeyi ekledim
+            $stmt = $pdo->prepare("UPDATE musteriler SET ad=?, soyad=?, email=?, telefon=?, adres=? $rolGuncelleSQL WHERE musteri_id=?");
+            $stmt->execute($params);
+            
             echo json_encode(["status"=>"success","message"=>"Müşteri güncellendi"]);
-            break;
 
-        case "DELETE":
-            $id = $_GET['musteri_id'] ?? $_GET['id'] ?? null;
+        // -------------------------------
+        // 🔹 EYLEM: DELETE (Müşteri Sil) (ESKİ DELETE KODU BURAYA TAŞINDI)
+        // -------------------------------
+        } elseif ($action === 'DELETE') {
+
+            // (Orijinal DELETE kodun)
             if ($rol !== "admin" && $rol !== "super_admin") {
                 http_response_code(403);
                 echo json_encode(["status"=>"error","message"=>"Yetkiniz yok"]);
                 exit;
             }
-
+            
+            // (DEĞİŞTİ: ID artık JSON'dan ($input) alınıyor)
+            $id = $input['musteri_id'] ?? null;
             if (!$id) {
                 http_response_code(400);
-                echo json_encode(["status"=>"error","message"=>"musteri_id gerekli"]);
+                echo json_encode(["status"=>"error","message"=>"JSON body içinde musteri_id gerekli"]);
                 exit;
             }
 
             $stmt = $pdo->prepare("DELETE FROM musteriler WHERE musteri_id=?");
             $stmt->execute([$id]);
             echo json_encode(["status"=>"success","message"=>"Müşteri silindi"]);
-            break;
-
-        default:
-            http_response_code(405);
-            echo json_encode(["status"=>"error","message"=>"Metod desteklenmiyor"]);
-            break;
+        
+        } else {
+             http_response_code(400);
+             echo json_encode(["status" => "error", "message" => "Geçersiz '_method' eylemi."]);
+        }
+        
+    } else {
+        http_response_code(405);
+        echo json_encode(["status"=>"error","message"=>"Sadece GET ve POST metotları desteklenmektedir."]);
     }
 } catch (Exception $e) {
     http_response_code(500);

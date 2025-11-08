@@ -1,6 +1,4 @@
 <?php
-// ✅ restoranlar.php - Tam CRUD + Admin Rolü Kontrolü (JWT Koruması)
-// 🔥 GÜNCELLENMİŞ SÜRÜM: PUT/DELETE Tünelleme (403 Hatası Çözümü)
 
 // Hata ayıklama
 ini_set('display_errors', 1);

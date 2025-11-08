@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // db.php - Local / Production (Düzeltilmiş Ortam Algılamalı)
 
 error_reporting(E_ALL);
@@ -12,16 +12,15 @@ $local = [
     'password' => '',
     'charset'  => 'utf8mb4',
 ];
-
-$prod = [
-    'host'     => 'sql211.infinityfree.com',
+ 
+$prod = [ 
+    'host'     => '104.247.165.163',
     'port'     => 3306,
-    'dbname'   => 'if0_40087914_yemeksepeti',
-    'username' => 'if0_40087914',
-    'password' => 'SuMUKrWUpO4v',
+    'dbname'   => 'dronecekimi_samsuntelefoncu', 
+    'username' => 'dronecekimi_samsuntelefoncu', 
+    'password' => 'pnK7GjJx]M.S9_h6', 
     'charset'  => 'utf8mb4',
 ];
-
 
 $env = 'prod'; // Varsayılan olarak CANLI (prod) ayarla
 
@@ -36,13 +35,12 @@ if (isset($_SERVER['HTTP_HOST'])) {
     else if (strpos($hostHeader, 'trycloudflare.com') !== false) {
         $env = 'local';
     }
-    // Diğer tüm durumlar (yemek.wuaze.com dahil) 'prod' olarak kalır.
+    // Diğer tüm durumlar (yeni domainin dahil) 'prod' olarak kalır.
 } 
 // Eğer komut satırından çalıştırılırsa (ileri düzey kullanım)
 elseif (php_sapi_name() === 'cli') {
     $env = 'local';
 }
-// Ortam değişkeni (getenv) kontrollerini şimdilik basitleştirdik.
 
 // === Seçilen config ===
 $config = ($env === 'local') ? $local : $prod;
@@ -59,9 +57,9 @@ $dsn = sprintf(
 // === PDO bağlantısı ===
 try {
     $pdo = new PDO($dsn, $config['username'], $config['password'], [
-        PDO::ATTR_ERRMODE           => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES  => false,
+        PDO::ATTR_EMULATE_PREPARES   => false,
     ]);
 } catch (PDOException $e) {
     error_log("DB connection error ({$env}): " . $e->getMessage());
