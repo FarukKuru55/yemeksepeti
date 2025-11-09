@@ -1,0 +1,8 @@
+# 1. Vendor klasörünü (binlerce dosya) görmezden gel
+/vendor/
+
+# 2. Veritabanı şifrelerimizi gizle
+/Api/db.php
+
+# 3. Ayar dosyamızı (JWT şifresi) gizle
+/config.php
