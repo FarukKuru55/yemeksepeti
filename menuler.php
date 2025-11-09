@@ -1,5 +1,5 @@
 <?php
-// ✅ menuler.php (Tam Düzeltildi)
+// ✅ menuler.php (Tam Düzeltildi, Menü + Resim Tek Sayfa)
 
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
@@ -28,7 +28,6 @@ function getBearerToken() {
     if (function_exists('getallheaders')) {
         $headers = getallheaders();
     }
-
     foreach ($headers as $name => $value) {
         if (strtolower($name) === 'authorization') {
             if (preg_match('/Bearer\s(\S+)/', $value, $matches)) {
@@ -36,14 +35,11 @@ function getBearerToken() {
             }
         }
     }
-
-    // Apache'de bazen üstteki işe yaramaz
     if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
         if (preg_match('/Bearer\s(\S+)/', $_SERVER['HTTP_AUTHORIZATION'], $matches)) {
             return $matches[1];
         }
     }
-
     return null;
 }
 
@@ -60,9 +56,7 @@ try {
     $rol = $decoded->rol ?? null;
     $restoran_id_token = $decoded->restoran_id ?? null;
 
-    if (!$rol) {
-        throw new Exception("Token geçersiz veya rol bulunamadı.");
-    }
+    if (!$rol) throw new Exception("Token geçersiz veya rol bulunamadı.");
 } catch (Exception $e) {
     http_response_code(403);
     echo json_encode([
@@ -110,7 +104,7 @@ try {
         $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https" : "http";
         $host = $_SERVER['HTTP_HOST'];
         $basePath = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'])), '/');
-        $baseUrl = "{$protocol}://{$host}{$basePath}/img/menu_resimleri/";
+        $baseUrl = "{$protocol}://{$host}{$basePath}/";
 
         if (isset($data[0])) {
             foreach ($data as &$menu) {
@@ -127,15 +121,15 @@ try {
     // 🔹 POST (Ekle / Güncelle / Sil)
     elseif ($method === "POST") {
         $input = json_decode(file_get_contents("php://input"), true);
+        $isJson = true;
         if ($input === null) {
-            http_response_code(400);
-            echo json_encode(["status" => "error", "message" => "Geçersiz JSON verisi."]);
-            exit;
+            $isJson = false;
+            $input = $_POST; // Form-data ile gelirse
         }
 
         $action = $input['_method'] ?? 'POST';
 
-        // --- PUT (Güncelleme) ---
+        // --- PUT (Güncelleme)
         if ($action === 'PUT') {
             if (!in_array($rol, ['restoran', 'admin'])) {
                 http_response_code(403);
@@ -152,22 +146,17 @@ try {
 
             $fields = [];
             $params = [];
-
             foreach (['ad', 'aciklama', 'fiyat', 'resim_url'] as $field) {
                 if (isset($input[$field])) {
                     $fields[] = "$field = ?";
                     $params[] = $input[$field];
                 }
             }
-
             if ($rol === "admin" && isset($input['restoran_id'])) {
                 $fields[] = "restoran_id = ?";
                 $params[] = $input['restoran_id'];
             }
-
-            if (empty($fields)) {
-                throw new Exception("Güncellenecek alan yok");
-            }
+            if (empty($fields)) throw new Exception("Güncellenecek alan yok");
 
             $sql = "UPDATE menuler SET " . implode(", ", $fields) . " WHERE menu_id = ?";
             $params[] = $menu_id;
@@ -184,7 +173,7 @@ try {
             exit;
         }
 
-        // --- DELETE (Silme) ---
+        // --- DELETE (Silme)
         elseif ($action === 'DELETE') {
             if (!in_array($rol, ['restoran', 'admin'])) {
                 http_response_code(403);
@@ -203,13 +192,9 @@ try {
             $stmtSel->execute([$menu_id]);
             $row = $stmtSel->fetch(PDO::FETCH_ASSOC);
 
-            if (!$row) {
-                throw new Exception("Menü bulunamadı");
-            }
-
-            if ($rol === "restoran" && $row['restoran_id'] != $restoran_id_token) {
+            if (!$row) throw new Exception("Menü bulunamadı");
+            if ($rol === "restoran" && $row['restoran_id'] != $restoran_id_token)
                 throw new Exception("Bu menü size ait değil");
-            }
 
             if ($rol === "restoran") {
                 $stmt = $pdo->prepare("DELETE FROM menuler WHERE menu_id=? AND restoran_id=?");
@@ -220,7 +205,7 @@ try {
             }
 
             if ($stmt->rowCount() > 0 && !empty($row['resim_url'])) {
-                $path = __DIR__ . "/img/menu_resimleri/" . basename($row['resim_url']);
+                $path = __DIR__ . "/" . basename($row['resim_url']);
                 if (file_exists($path)) @unlink($path);
             }
 
@@ -228,7 +213,7 @@ try {
             exit;
         }
 
-        // --- POST (Yeni Ekleme) ---
+        // --- POST (Yeni Ekleme)
         else {
             if (!in_array($rol, ['restoran', 'admin'])) {
                 http_response_code(403);
@@ -243,20 +228,37 @@ try {
             }
 
             $restoran_id = ($rol === "restoran") ? $restoran_id_token : ($input['restoran_id'] ?? null);
-
             if (!$restoran_id) {
                 http_response_code(400);
                 echo json_encode(["status" => "error", "message" => "restoran_id gerekli"]);
                 exit;
             }
 
-            $stmt = $pdo->prepare("INSERT INTO menuler (restoran_id, ad, aciklama, fiyat, resim_url) VALUES (?, ?, ?, ?, NULL)");
-            $stmt->execute([$restoran_id, $input['ad'], $input['aciklama'], $input['fiyat']]);
+            // --- Resim yükleme (form-data ile) ---
+            $resim_url = null;
+            if (!$isJson && isset($_FILES['resim']) && $_FILES['resim']['error'] == 0) {
+                $target_dir = __DIR__ . "/img/menu_resimleri/";
+                if (!is_dir($target_dir)) mkdir($target_dir, 0755, true);
+
+                // Dosya adındaki boşlukları _ ile değiştir
+                $filename = str_replace(' ', '_', basename($_FILES['resim']['name']));
+                $target_file = $target_dir . $filename;
+
+                if (move_uploaded_file($_FILES['resim']['tmp_name'], $target_file)) {
+                    $resim_url = "img/menu_resimleri/" . $filename;
+                }
+            } elseif ($isJson && !empty($input['resim_url'])) {
+                $resim_url = $input['resim_url'];
+            }
+
+            $stmt = $pdo->prepare("INSERT INTO menuler (restoran_id, ad, aciklama, fiyat, resim_url) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$restoran_id, $input['ad'], $input['aciklama'], $input['fiyat'], $resim_url]);
 
             echo json_encode([
                 "status" => "success",
                 "message" => "Menü eklendi",
-                "menu_id" => $pdo->lastInsertId()
+                "menu_id" => $pdo->lastInsertId(),
+                "resim_url" => $resim_url
             ]);
             exit;
         }
@@ -275,3 +277,4 @@ try {
     exit;
 }
 ?>
+f
