@@ -1,8 +1,27 @@
 # 1. Vendor klasörünü (binlerce dosya) görmezden gel
 /vendor/
 
-# 2. Veritabanı şifrelerimizi gizle
+# 2. Veritabanı şifrelerini içeren dosyayı gizle
 /Api/db.php
 
-# 3. Ayar dosyamızı (JWT şifresi) gizle
+# 3. JWT veya diğer gizli anahtarları içeren config dosyasını gizle
 /config.php
+
+# 4. IDE ve sistem dosyalarını gizle
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 5. Log dosyaları ve geçici dosyalar
+*.log
+*.tmp
+*.cache
+
+# 6. Composer autoload dosyaları (vendor zaten hariç)
+composer.lock
+
+# 7. Ortam değişkenleri (ileride eklersen)
+/.env
+.env.local
+.env.*
