@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CANLI API Test Paneli</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        input, select {
+            border-color: #9ca3af; /* gray-400 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold text-center text-red-600 mb-8">API Test Paneli (Tüm Metodlar)</h1>
+        <p class="text-center mb-4">Bu panel, XAMPP (`localhost`) üzerindeki `restoranlar.php` API'nizi test etmek içindir.</p>
+
+        <!-- API URL'si -->
+        <script>
+            // Bu JS kodu 'restoranlar.php' (Ders 33/48) dosyasını hedefler.
+            const API_URL = 'https://yemek.wuaze.com/restoranlar.php';
+        </script>
+
+        <!-- 1. GET Testi (JS Kodu) -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h2 class="text-xl font-semibold mb-4 text-blue-600">1. GET (Tüm Restoranları Getir)</h2>
+            <button id="testGet" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors">
+                GET İsteği Gönder
+            </button>
+        </div>
+
+        <!-- 2. POST Testi (JS Kodu) -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h2 class="text-xl font-semibold mb-4 text-green-600">2. POST (Yeni Restoran Ekle)</h2>
+            <form id="formPOST" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input type="text" id="post_ad" placeholder="Restoran Adı" class="p-2 border rounded-md" required value="Test Restoranı">
+                <input type="text" id="post_adres" placeholder="Adres" class="p-2 border rounded-md" required value="Test Adres">
+                <input type="text" id="post_email" placeholder="Email" class="p-2 border rounded-md" required value="test@mail.com">
+                <input type="text" id="post_sifre" placeholder="Şifre" class="p-2 border rounded-md" required value="123456">
+                <input type="text" id="post_telefon" placeholder="Telefon" class="p-2 border rounded-md" required value="5551234567">
+                <input type="number" id="post_kategori_id" placeholder="Kategori ID (örn: 1)" class="p-2 border rounded-md" value="1">
+                <input type="text" id="post_puan" placeholder="Puan (örn: 4.5)" class="p-2 border rounded-md" value="5.0">
+                <input type="text" id="post_acilis" placeholder="Açılış (örn: 09:00)" class="p-2 border rounded-md" value="09:00">
+                <input type="text" id="post_kapanis" placeholder="Kapanış (örn: 22:00)" class="p-2 border rounded-md" value="22:00">
+                <button type="submit" class="md:col-span-2 w-full bg-green-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-green-700 transition-colors">
+                    POST İsteği Gönder
+                </button>
+            </form>
+        </div>
+
+        <!-- 3. PUT Testi (JS Kodu) -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h2 class="text-xl font-semibold mb-4 text-yellow-600">3. PUT (Restoran Güncelle)</h2>
+            <form id="formPUT" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input type="number" id="put_id" placeholder="Güncellenecek ID" class="p-2 border rounded-md" required>
+                <input type="text" id="put_ad" placeholder="YENİ Restoran Adı" class="p-2 border rounded-md" required>
+                <input type="text" id="put_adres" placeholder="YENİ Adres" class="p-2 border rounded-md">
+                <button type="submit" class="md:col-span-2 w-full bg-yellow-500 text-white py-2 px-4 rounded-lg font-medium hover:bg-yellow-600 transition-colors">
+                    PUT İsteği Gönder
+                </button>
+            </form>
+        </div>
+
+        <!-- 4. DELETE Testi (JS Kodu) -->
+        <div class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h2 class="text-xl font-semibold mb-4 text-red-600">4. DELETE (Restoran Sil)</h2>
+            <form id="formDELETE" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input type="number" id="delete_id" placeholder="Silinecek ID" class="p-2 border rounded-md md:col-span-2" required>
+                <button type="submit" class="w-full bg-red-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-red-700 transition-colors">
+                    DELETE İsteği Gönder
+                </button>
+            </form>
+        </div>
+
+        <!-- Sunucu Yanıtı -->
+        <div class="bg-gray-900 text-white p-6 rounded-xl shadow-lg">
+            <h2 class="text-xl font-semibold mb-4 text-gray-300">Sunucu Yanıtı (JSON)</h2>
+            <pre id="response" class="text-sm overflow-x-auto whitespace-pre-wrap break-all">Test sonucu burada görünecek...</pre>
+        </div>
+    </div>
+
+    <!-- TÜM TESTLER İÇİN GEREKLİ JS KODLARI -->
+    <script>
+        // Bu JS kodları bir önceki panelle aynı, sadece API_URL (yukarıda) değişti
+        const responsePre = document.getElementById('response');
+
+        function showResponse(data) {
+            responsePre.textContent = JSON.stringify(data, null, 2);
+        }
+        function showError(error) {
+            responsePre.textContent = `HATA: ${error.message}\n\nDetaylar konsolda.`;
+            console.error(error);
+        }
+
+        // 1. GET JS KODU
+        document.getElementById('testGet').addEventListener('click', async () => {
+            try {
+                const res = await fetch(API_URL);
+                const data = await res.json();
+                showResponse(data);
+            } catch (err) {
+                showError(err);
+            }
+        });
+
+        // 2. POST JS KODU
+        document.getElementById('formPOST').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('ad', document.getElementById('post_ad').value);
+            formData.append('adres', document.getElementById('post_adres').value);
+            formData.append('email', document.getElementById('post_email').value);
+            formData.append('sifre', document.getElementById('post_sifre').value);
+            formData.append('telefon', document.getElementById('post_telefon').value);
+            formData.append('kategori_id', document.getElementById('post_kategori_id').value);
+            // ... (diğer POST alanları) ...
+
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    body: formData 
+                });
+                const data = await res.json();
+                showResponse(data);
+            } catch (err) {
+                showError(err);
+            }
+        });
+
+        // 3. PUT JS KODU
+        document.getElementById('formPUT').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData();
+            formData.append('_method', 'PUT'); // Tünelleme
+            formData.append('restoran_id', document.getElementById('put_id').value);
+            formData.append('ad', document.getElementById('put_ad').value);
+            formData.append('adres', document.getElementById('put_adres').value);
+            
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'POST', 
+                    body: formData
+                });
+                const data = await res.json();
+                showResponse(data);
+            } catch (err) {
+                showError(err);
+            }
+        });
+
+        // 4. DELETE JS KODU
+        document.getElementById('formDELETE').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData();
+            formData.append('_method', 'DELETE'); // Tünelleme
+            formData.append('restoran_id', document.getElementById('delete_id').value);
+
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                showResponse(data);
+            } catch (err) {
+                showError(err);
+            }
+        });
+    </script>
+</body>
+</html>
