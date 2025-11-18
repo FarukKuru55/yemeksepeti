@@ -14,8 +14,7 @@ use Firebase\JWT\Key;
 // === CORS BAŞLIKLARI (DEĞİŞTİ) ===
 header("Content-Type: application/json; charset=UTF-8");
 header("Access-Control-Allow-Origin: *");
-// API'miz artık PUT/DELETE'i doğrudan kabul etmiyor, sadece POST üzerinden tünellemeyi kabul ediyor.
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS"); 
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -23,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// --- TOKEN FONKSİYONU (Aynen kaldı) ---
+// --- TOKEN FONKSİYONU ---
 function getBearerToken() {
     $header = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null;
     if (!$header && function_exists('getallheaders')) {
@@ -39,7 +38,7 @@ function getBearerToken() {
 $token = getBearerToken();
 if (!$token) {
     http_response_code(401);
-    echo json_encode(["status"=>"error","message"=>"Token gerekli"]);
+    echo json_encode(["status" => "error", "message" => "Token gerekli"]);
     exit;
 }
 
@@ -51,26 +50,24 @@ try {
     if (!$rol) throw new Exception("Token geçersiz");
 } catch (Exception $e) {
     http_response_code(403);
-    echo json_encode(["status"=>"error","message"=>"Geçersiz token","details"=>$e->getMessage()]);
+    echo json_encode(["status"=>"error", "message"=>"Geçersiz token", "details"=>$e->getMessage()]);
     exit;
 }
-// --- TOKEN SONU ---
 
 // --- CRUD ---
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {
+
     // ----------------------------------------------------
-    // 🔹 METOD: GET (Sipariş(ler)i Görüntüle)
+    // GET
     // ----------------------------------------------------
     if ($method === "GET") {
-        
-        // (Bu blokta hiçbir değişiklik yok, zaten mükemmeldi)
-        
+
         $siparis_id = $_GET['id'] ?? null;
 
         if ($rol === "musteri") {
-            // Müşteri sadece kendi siparişlerini görebilir
+
             if ($siparis_id) {
                 $stmt = $pdo->prepare("SELECT * FROM siparisler WHERE siparis_id=? AND musteri_id=?");
                 $stmt->execute([$siparis_id, $musteri_id]);
@@ -82,7 +79,7 @@ try {
             }
 
         } elseif ($rol === "restoran") {
-            // Restoran sahibi sadece kendi restoranına ait siparişleri görebilir
+
             if ($siparis_id) {
                 $stmt = $pdo->prepare("SELECT * FROM siparisler WHERE siparis_id=? AND restoran_id=?");
                 $stmt->execute([$siparis_id, $restoran_id_token]);
@@ -94,7 +91,7 @@ try {
             }
 
         } elseif ($rol === "admin") {
-            // Admin tüm siparişleri görebilir
+
             if ($siparis_id) {
                 $stmt = $pdo->prepare("SELECT * FROM siparisler WHERE siparis_id=?");
                 $stmt->execute([$siparis_id]);
@@ -106,47 +103,44 @@ try {
 
         } else {
             http_response_code(403);
-            echo json_encode(["status"=>"error","message"=>"Yetkiniz yok"]);
+            echo json_encode(["status"=>"error", "message"=>"Yetkiniz yok"]);
             exit;
         }
 
         if (!$data) {
             http_response_code(404);
-            echo json_encode(["status"=>"error","message"=>"Sipariş bulunamadı"]);
+            echo json_encode(["status"=>"error", "message"=>"Sipariş bulunamadı"]);
         } else {
-            echo json_encode(["status"=>"success","data"=>$data], JSON_UNESCAPED_UNICODE);
+            echo json_encode(["status"=>"success", "data"=>$data], JSON_UNESCAPED_UNICODE);
         }
 
     // ----------------------------------------------------
-    // 🔹 METOD: POST (Sipariş Ekle, Güncelle, Sil) (YAPI DEĞİŞTİ)
+    // POST (Tünellenmiş POST / PUT / DELETE)
     // ----------------------------------------------------
     } elseif ($method === "POST") {
-        
-        // Veriyi JSON olarak oku (Tüm eylemler için)
+
         $input = json_decode(file_get_contents("php://input"), true);
         if ($input === null) {
-             http_response_code(400);
-             echo json_encode(["status"=>"error","message"=>"Geçersiz JSON verisi"]);
-             exit;
+            http_response_code(400);
+            echo json_encode(["status"=>"error", "message"=>"Geçersiz JSON verisi"]);
+            exit;
         }
 
-        // Tünelleme: Hangi eylemi yapacağız?
         $action = $input['_method'] ?? 'POST';
 
         // -------------------------------
-        // 🔹 EYLEM: POST (Yeni Sipariş Ekle)
+        // POST → Yeni sipariş ekle
         // -------------------------------
         if ($action === 'POST') {
-            
-            // (Orijinal POST kodun)
+
             if (!isset($input['restoran_id'], $input['toplam_tutar'])) {
                 http_response_code(400);
                 echo json_encode(["status"=>"error","message"=>"Eksik alan (restoran_id, toplam_tutar)"]);
                 exit;
             }
 
-            // GÜVENLİ: musteri_id token'dan geliyor
-            $stmt = $pdo->prepare("INSERT INTO siparisler (musteri_id, restoran_id, toplam_tutar, durum, tarih) VALUES (?, ?, ?, ?, NOW())");
+            $stmt = $pdo->prepare("INSERT INTO siparisler (musteri_id, restoran_id, toplam_tutar, durum, tarih)
+                                   VALUES (?, ?, ?, ?, NOW())");
             $stmt->execute([
                 $musteri_id,
                 $input['restoran_id'],
@@ -156,35 +150,64 @@ try {
 
             http_response_code(201);
             echo json_encode(["status"=>"success","message"=>"Sipariş eklendi","siparis_id"=>$pdo->lastInsertId()]);
-        
+
         // -------------------------------
-        // 🔹 EYLEM: PUT (Sipariş Güncelle) (ESKİ PUT KODU BURAYA TAŞINDI)
+        // PUT → Sipariş güncelle
         // -------------------------------
         } elseif ($action === 'PUT') {
-            
-            // (Orijinal PUT kodun)
+
             if (!isset($input['siparis_id'])) {
                 http_response_code(400);
-                echo json_encode(["status"=>"error","message"=>"JSON body içinde siparis_id gerekli"]);
+                echo json_encode(["status"=>"error","message"=>"siparis_id gerekli"]);
                 exit;
             }
 
             if ($rol === "musteri") {
+
                 if (($input['durum'] ?? null) !== 'iptal') {
                     http_response_code(403);
                     echo json_encode(["status"=>"error","message"=>"Müşteri sadece siparişi iptal edebilir"]);
                     exit;
                 }
+
                 $stmt = $pdo->prepare("UPDATE siparisler SET durum='iptal' WHERE siparis_id=? AND musteri_id=?");
                 $stmt->execute([$input['siparis_id'], $musteri_id]);
 
             } elseif ($rol === "restoran") {
-                $stmt = $pdo->prepare("UPDATE siparisler SET durum=COALESCE(?, durum) WHERE siparis_id=? AND restoran_id=?");
-                $stmt->execute([$input['durum'] ?? null, $input['siparis_id'], $restoran_id_token]);
+
+                // 🔥 GÜNCEL → toplam_tutar eklendi
+                $stmt = $pdo->prepare("
+                    UPDATE siparisler 
+                    SET 
+                        durum = COALESCE(?, durum),
+                        toplam_tutar = COALESCE(?, toplam_tutar)
+                    WHERE siparis_id=? AND restoran_id=?
+                ");
+
+                $stmt->execute([
+                    $input['durum'] ?? null,
+                    $input['toplam_tutar'] ?? null,
+                    $input['siparis_id'],
+                    $restoran_id_token
+                ]);
 
             } elseif ($rol === "admin") {
-                $stmt = $pdo->prepare("UPDATE siparisler SET durum=COALESCE(?, durum) WHERE siparis_id=?");
-                $stmt->execute([$input['durum'] ?? null, $input['siparis_id']]);
+
+                // 🔥 GÜNCEL → toplam_tutar eklendi
+                $stmt = $pdo->prepare("
+                    UPDATE siparisler 
+                    SET 
+                        durum = COALESCE(?, durum),
+                        toplam_tutar = COALESCE(?, toplam_tutar)
+                    WHERE siparis_id=?
+                ");
+
+                $stmt->execute([
+                    $input['durum'] ?? null,
+                    $input['toplam_tutar'] ?? null,
+                    $input['siparis_id']
+                ]);
+
             } else {
                 http_response_code(403);
                 echo json_encode(["status"=>"error","message"=>"Yetkiniz yok"]);
@@ -194,22 +217,20 @@ try {
             echo json_encode(["status"=>"success","message"=>"Sipariş güncellendi"]);
 
         // -------------------------------
-        // 🔹 EYLEM: DELETE (Sipariş Sil) (ESKİ DELETE KODU BURAYA TAŞINDI)
+        // DELETE → Sipariş sil
         // -------------------------------
         } elseif ($action === 'DELETE') {
-            
-            // (Orijinal DELETE kodun)
+
             if ($rol !== "admin") {
                 http_response_code(403);
-                echo json_encode(["status"=>"error","message"=>"Sadece admin siparişi silebilir"]);
+                echo json_encode(["status"=>"error","message"=>"Sadece admin silebilir"]);
                 exit;
             }
 
-            // (DEĞİŞTİ: ID artık JSON'dan ($input) alınıyor)
             $siparis_id = $input['siparis_id'] ?? null;
             if (!$siparis_id) {
                 http_response_code(400);
-                echo json_encode(["status"=>"error","message"=>"JSON body içinde siparis_id gerekli"]);
+                echo json_encode(["status"=>"error","message"=>"siparis_id gerekli"]);
                 exit;
             }
 
@@ -217,21 +238,19 @@ try {
             $stmt->execute([$siparis_id]);
 
             echo json_encode(["status"=>"success","message"=>"Sipariş silindi"]);
-        
+
         } else {
-            // Eğer _method POST, PUT, DELETE dışında bir şeyse
             http_response_code(400);
-            echo json_encode(["status" => "error", "message" => "Geçersiz '_method' eylemi."]);
+            echo json_encode(["status"=>"error","message"=>"Geçersiz _method"]);
         }
 
     } else {
-        // GET veya POST dışındaki tüm metodları reddet
         http_response_code(405);
-        echo json_encode(["status"=>"error","message"=>"Sadece GET ve POST metotları desteklenmektedir."]);
+        echo json_encode(["status"=>"error","message"=>"Sadece GET ve POST destekleniyor"]);
     }
 
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode(["status"=>"error","message"=>$e->getMessage()]);
 }
-?>  
+?>

@@ -49,9 +49,11 @@ try {
     $musteri_id_token = $decoded->sub ?? null; // Token'daki musteri ID'si
     if (!$rol || !$musteri_id_token) throw new Exception("Token geçersiz");
 } catch (Exception $e) {
-    http_response_code(403);
-    echo json_encode(["status"=>"error","message"=>"Geçersiz token","details"=>$e->getMessage()]);
-    exit;
+    http_response_code($e->getCode() ?: 500);
+    echo json_encode([
+        "status" => "error",
+        "message" => $config['env'] === 'development' ? $e->getMessage() : "Bir hata oluştu."
+    ], JSON_UNESCAPED_UNICODE);
 }
 // --- TOKEN SONU ---
 

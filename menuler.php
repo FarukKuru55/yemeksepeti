@@ -67,6 +67,8 @@ try {
     exit;
 }
 
+
+
 $method = $_SERVER['REQUEST_METHOD'];
 $columns = "menu_id, restoran_id, ad, aciklama, fiyat, resim_url";
 
@@ -277,4 +279,3 @@ try {
     exit;
 }
 ?>
-f
