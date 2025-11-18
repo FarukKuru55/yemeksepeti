@@ -6,8 +6,8 @@ ini_set('display_errors', 1);
 
 // Yerel ortam (örnek)
 $local = [
-    'host'     => '127.0.0.1',   // Localhost MySQL
-    'port'     => 3306,          // XAMPP veya MAMP portu
+    'host'     => '127.0.0.1', 
+    'port'     => 3306,        
     'dbname'   => 'ornek_veritabani',
     'username' => 'root',
     'password' => '',
